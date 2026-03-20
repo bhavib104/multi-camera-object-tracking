@@ -1,46 +1,61 @@
 from ultralytics import YOLO
 import cv2
+import csv
+from datetime import datetime
 
 # Load model
 model = YOLO("yolov8n.pt")
 
-# Load both videos
-cap1 = cv2.VideoCapture("videos/cam1.mp4")
-cap2 = cv2.VideoCapture("videos/cam2.mp4")
+# Load video
+cap = cv2.VideoCapture("videos/cam1.mp4")
 
-if not cap1.isOpened() or not cap2.isOpened():
-    print("Error: Cannot open videos")
+# Dictionary to store object data
+tracked_objects = {}
+
+class_names = model.names
+
+if not cap.isOpened():
+    print("Error: Cannot open video")
     exit()
 
 while True:
-    ret1, frame1 = cap1.read()
-    ret2, frame2 = cap2.read()
-
-    if not ret1 or not ret2:
-        print("End of one video")
+    ret, frame = cap.read()
+    if not ret:
         break
 
-    # Run detection + tracking
-    results1 = model.track(frame1, persist=True)
-    results2 = model.track(frame2, persist=True)
+    results = model.track(frame, persist=True)
+    annotated_frame = results[0].plot()
 
-    # Annotate frames
-    annotated1 = results1[0].plot()
-    annotated2 = results2[0].plot()
+    if results[0].boxes is not None:
+        for box in results[0].boxes:
+            if box.id is not None:
+                obj_id = int(box.id)
+                cls_id = int(box.cls)
+                label = class_names[cls_id]
 
-    # Resize for side-by-side view
-    annotated1 = cv2.resize(annotated1, (640, 360))
-    annotated2 = cv2.resize(annotated2, (640, 360))
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Combine frames
-    combined = cv2.hconcat([annotated1, annotated2])
+                # If object seen first time
+                if obj_id not in tracked_objects:
+                    tracked_objects[obj_id] = [label, current_time, current_time]
+                else:
+                    # Update last seen time
+                    tracked_objects[obj_id][2] = current_time
 
-    # Show output
-    cv2.imshow("Multi-Camera Tracking", combined)
+    cv2.imshow("Tracking System", annotated_frame)
 
     if cv2.waitKey(1) & 0xFF == 27:
         break
 
-cap1.release()
-cap2.release()
+cap.release()
 cv2.destroyAllWindows()
+
+# Save to CSV AFTER processing
+with open("database.csv", mode="w", newline="") as file:
+    writer = csv.writer(file)
+    writer.writerow(["Object_ID", "Class", "First_Seen", "Last_Seen"])
+
+    for obj_id, data in tracked_objects.items():
+        writer.writerow([obj_id, data[0], data[1], data[2]])
+
+print("✅ Data saved to database.csv")
